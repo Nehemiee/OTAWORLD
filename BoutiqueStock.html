@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BoutiqueStock — Gestion de stock</title>
+<title>Otaworld243</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -250,7 +250,7 @@
 <div id="login-screen">
   <div class="login-card">
     <div class="login-logo">🏪</div>
-    <div class="login-title">BoutiqueStock</div>
+    <div class="login-title">Otaworld243</div>
     <div class="login-sub" id="login-sub">Connexion à la base de données…</div>
     <div style="display:flex;flex-direction:column;gap:10px;text-align:left;margin-bottom:8px">
       <div class="form-field">
@@ -273,7 +273,7 @@
   <div class="topbar">
     <div class="topbar-left">
       <span style="font-size:24px">🏪</span>
-      <span class="logo">BoutiqueStock</span>
+      <span class="logo">Otaworld243</span>
       <span class="badge" id="header-role-badge"></span>
     </div>
     <div style="display:flex;align-items:center;gap:10px">
@@ -290,6 +290,7 @@
       <hr class="nav-sep">
       <button class="nav-btn" id="nav-history" onclick="navigate('history')">🧾<span class="tooltip">Historique des ventes</span></button>
       <button class="nav-btn" id="nav-users" onclick="navigate('users')">👥<span class="tooltip">Utilisateurs</span></button>
+      <button class="nav-btn" id="nav-settings" onclick="navigate('settings')">⚙️<span class="tooltip">Paramètres (taux de change)</span></button>
     </div>
     <div class="content" id="page-content"></div>
   </div>
@@ -377,6 +378,7 @@ function save(key, val) {
 let products = DEFAULT_PRODUCTS;
 let users = DEFAULT_USERS;
 let salesHistory = [];
+let exchangeRate = 2800; // Taux par défaut : 1 $ = 2800 Fc (modifiable par l'admin)
 
 function saveProducts() {
   if (useFirebase) docRef.set({ products }, { merge: true }).catch(e => console.warn('Erreur Firebase (produits):', e));
@@ -390,18 +392,36 @@ function saveSales() {
   if (useFirebase) docRef.set({ sales: salesHistory }, { merge: true }).catch(e => console.warn('Erreur Firebase (ventes):', e));
   else save('sales', salesHistory);
 }
+function saveSettings() {
+  if (useFirebase) docRef.set({ exchangeRate }, { merge: true }).catch(e => console.warn('Erreur Firebase (paramètres):', e));
+  else save('rate', exchangeRate);
+}
 
 function loadLocalFallback() {
   products = load('products', DEFAULT_PRODUCTS);
   users = load('users', DEFAULT_USERS);
   salesHistory = load('sales', []);
+  exchangeRate = load('rate', 2800);
 }
+
+// ══════════════════════════════════════════════
+//  DEVISES — Franc congolais (Fc) / Dollar US ($)
+// ══════════════════════════════════════════════
+function fmtFC(n) {
+  n = Math.round(n || 0);
+  return n.toLocaleString('fr-FR') + ' Fc';
+}
+function fmtUSD(n) {
+  return '$' + (n || 0).toFixed(2);
+}
+function fcToUsd(fc) { return exchangeRate > 0 ? fc / exchangeRate : 0; }
+function usdToFc(usd) { return usd * exchangeRate; }
 
 // Re-affiche la vue courante quand les données changent (ex: mise à jour
 // faite depuis une autre machine connectée à la même base Firebase).
 function refreshAfterSync() {
   if (currentUser) {
-    if (['pos','stock','add','history','users'].includes(currentView)) navigate(currentView);
+    if (['pos','stock','add','history','users','settings'].includes(currentView)) navigate(currentView);
   } else {
     renderLoginGrid();
   }
@@ -417,8 +437,9 @@ async function initData() {
         products = d.products || DEFAULT_PRODUCTS;
         users = d.users || DEFAULT_USERS;
         salesHistory = d.sales || [];
+        exchangeRate = d.exchangeRate || 2800;
       } else {
-        await docRef.set({ products: DEFAULT_PRODUCTS, users: DEFAULT_USERS, sales: [] });
+        await docRef.set({ products: DEFAULT_PRODUCTS, users: DEFAULT_USERS, sales: [], exchangeRate: 2800 });
       }
       // Synchronisation en temps réel entre tous les appareils connectés
       docRef.onSnapshot(snap => {
@@ -427,6 +448,7 @@ async function initData() {
         products = d.products || products;
         users = d.users || users;
         salesHistory = d.sales || salesHistory;
+        exchangeRate = d.exchangeRate || exchangeRate;
         refreshAfterSync();
       });
       if (subEl) subEl.textContent = 'Connectez-vous avec votre identifiant et mot de passe';
@@ -453,6 +475,9 @@ let scannedProduct = null;
 let lastReceived = null;
 let lastChange = null;
 let lastSale = null;
+let lastPayCurrency = null;
+let lastReceivedForeign = null;
+let lastRateUsed = null;
 let scanIdx = 0;
 let darkMode = load('dark', false);
 
@@ -511,7 +536,7 @@ function doLogout() {
 
 function setupNavAccess() {
   const isAdmin = currentUser.role === 'admin';
-  ['nav-stock','nav-add','nav-history','nav-users'].forEach(id => {
+  ['nav-stock','nav-add','nav-history','nav-users','nav-settings'].forEach(id => {
     const btn = document.getElementById(id);
     if (isAdmin) { btn.classList.remove('locked'); btn.onclick = () => navigate(id.replace('nav-','')); }
     else { btn.classList.add('locked'); btn.onclick = () => toast('Accès réservé à l\'administrateur','⚠️'); }
@@ -533,6 +558,7 @@ function navigate(view) {
   else if (view === 'add') renderAddProduct(pc);
   else if (view === 'history') renderHistory(pc);
   else if (view === 'users') renderUsers(pc);
+  else if (view === 'settings') renderSettings(pc);
 }
 
 // ══════════════════════════════════════════════
@@ -569,7 +595,7 @@ function renderPOS(pc) {
           <div style="flex:1">
             <div style="font-size:16px;font-weight:600">${p.name}</div>
             <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${p.category} · Réf: ${p.id} · Code: ${p.barcode}</div>
-            <div class="product-price">${p.price.toFixed(2)} €</div>
+            <div class="product-price">${fmtFC(p.price)}</div>
             <span class="badge ${p.stock===0?'badge-out':p.stock<=3?'badge-low':'badge-ok'}">
               ${p.stock===0?'Rupture de stock':p.stock<=3?`⚠️ Stock faible (${p.stock} restants)`:`✅ ${p.stock} en stock`}
             </span>
@@ -600,28 +626,29 @@ function renderPOS(pc) {
             <span style="font-size:22px">${item.emoji}</span>
             <div style="flex:1;min-width:0">
               <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.name}</div>
-              <div style="font-size:12px;color:var(--text-secondary)">${item.price.toFixed(2)} € / u</div>
+              <div style="font-size:12px;color:var(--text-secondary)">${fmtFC(item.price)} / u</div>
             </div>
             <div class="qty-ctrl">
               <button class="qty-btn" onclick="changeQty(${i},-1)">−</button>
               <span style="font-size:13px;font-weight:600;min-width:20px;text-align:center">${item.qty}</span>
               <button class="qty-btn" onclick="changeQty(${i},1)">+</button>
             </div>
-            <div style="font-size:13px;font-weight:600;color:var(--text-accent);min-width:56px;text-align:right">${(item.price*item.qty).toFixed(2)} €</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-accent);min-width:56px;text-align:right">${fmtFC(item.price*item.qty)}</div>
           </div>`).join('')}
       </div>
       <hr>
       <div class="cart-total">
         <div>
           <div style="font-size:12px;color:var(--text-secondary)">Total TTC</div>
-          <div class="cart-total-amount">${total.toFixed(2)} €</div>
+          <div class="cart-total-amount">${fmtFC(total)}</div>
+          <div style="font-size:11px;color:var(--text-muted)">≈ ${fmtUSD(fcToUsd(total))}</div>
         </div>
         <div style="text-align:right">
           <div style="font-size:12px;color:var(--text-secondary)">${cart.reduce((s,i)=>s+i.qty,0)} article(s)</div>
         </div>
       </div>
       <button class="btn btn-success" onclick="openConfirmSale()" style="width:100%;justify-content:center;padding:12px;font-size:14px" ${cart.length===0?'disabled':''}>
-        ✅ Valider la vente — ${total.toFixed(2)} €
+        ✅ Valider la vente — ${fmtFC(total)}
       </button>
       <button class="btn btn-sm" onclick="openPaymentCalc()" style="width:100%;justify-content:center" ${cart.length===0?'disabled':''}>
         🧮 Calculer le rendu monnaie
@@ -657,16 +684,51 @@ function startCameraScan() {
     Html5QrcodeSupportedFormats.ITF,
     Html5QrcodeSupportedFormats.QR_CODE
   ] : undefined;
-  const config = { fps: 10, qrbox: { width: 280, height: 180 }, formatsToSupport };
-  html5QrCode.start(
-    { facingMode: "environment" },
-    config,
-    (decodedText) => { onBarcodeDetected(decodedText); },
-    () => { /* image sans code détecté sur cette frame : on ignore */ }
-  ).catch(err => {
-    toast('Caméra inaccessible : vérifiez les autorisations ou utilisez HTTPS', '⚠️');
-    closeModal();
-  });
+  const config = { fps: 15, qrbox: { width: 250, height: 150 }, formatsToSupport };
+
+  const fallbackStart = () => {
+    html5QrCode.start(
+      { facingMode: { exact: "environment" } },
+      config,
+      (decodedText) => { onBarcodeDetected(decodedText); },
+      () => {}
+    ).catch(() => {
+      html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        (decodedText) => { onBarcodeDetected(decodedText); },
+        () => {}
+      ).catch(() => {
+        toast('Caméra inaccessible : vérifiez les autorisations ou utilisez HTTPS', '⚠️');
+        closeModal();
+      });
+    });
+  };
+
+  // Sélection intelligente : éviter le grand-angle, préférer la caméra principale
+  Html5Qrcode.getCameras().then(cameras => {
+    if (!cameras || cameras.length === 0) { fallbackStart(); return; }
+
+    let chosen = null;
+    // 1. Chercher une caméra arrière explicitement non-wide
+    for (const c of cameras) {
+      const label = (c.label || '').toLowerCase();
+      if ((label.includes('back') || label.includes('arrière') || label.includes('rear'))
+          && !label.includes('ultra') && !label.includes('wide') && !label.includes('0.6')) {
+        chosen = c; break;
+      }
+    }
+    // 2. Si rien trouvé, prendre la dernière caméra (souvent la principale sur multi-cam)
+    if (!chosen) chosen = cameras[cameras.length - 1];
+
+    html5QrCode.start(
+      chosen.id,
+      config,
+      (decodedText) => { onBarcodeDetected(decodedText); },
+      () => {}
+    ).catch(() => fallbackStart());
+
+  }).catch(() => fallbackStart());
 }
 
 function onBarcodeDetected(code) {
@@ -736,13 +798,13 @@ function openConfirmSale() {
         ${cart.map(i => `<tr>
           <td>${i.emoji} ${i.name}</td>
           <td style="text-align:right">${i.qty}</td>
-          <td style="text-align:right;color:var(--text-accent);font-weight:600">${(i.price*i.qty).toFixed(2)} €</td>
+          <td style="text-align:right;color:var(--text-accent);font-weight:600">${fmtFC(i.price*i.qty)}</td>
         </tr>`).join('')}
       </tbody>
     </table>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:0.5px solid var(--border);margin-top:8px">
       <span style="font-size:15px;font-weight:600">Total</span>
-      <span style="font-size:22px;font-weight:700;color:var(--text-accent)">${total.toFixed(2)} €</span>
+      <span style="font-size:22px;font-weight:700;color:var(--text-accent)">${fmtFC(total)}</span>
     </div>
     <div class="modal-actions">
       <button class="btn btn-success" style="flex:1;justify-content:center" onclick="confirmSale()">✅ Confirmer</button>
@@ -759,15 +821,19 @@ function confirmSale() {
     if (p) p.stock = Math.max(0, p.stock - item.qty);
   });
   saveProducts();
-  const sale = { id: 'V'+Date.now(), date: new Date().toLocaleString('fr-FR'), seller: currentUser.name, items, total, received: lastReceived, change: lastChange };
+  const sale = {
+    id: 'V'+Date.now(), date: new Date().toLocaleString('fr-FR'), seller: currentUser.name, items, total,
+    received: lastReceived, change: lastChange,
+    payCurrency: lastPayCurrency, receivedForeign: lastReceivedForeign, rateUsed: lastRateUsed
+  };
   salesHistory.unshift(sale);
   if (salesHistory.length > 500) salesHistory = salesHistory.slice(0, 500);
   saveSales();
   lastSale = sale;
   cart = []; scannedProduct = null;
-  lastReceived = null; lastChange = null;
+  lastReceived = null; lastChange = null; lastPayCurrency = null; lastReceivedForeign = null; lastRateUsed = null;
   closeModal();
-  toast(`Vente validée — ${total.toFixed(2)} €`, '✅');
+  toast(`Vente validée — ${fmtFC(total)}`, '✅');
   navigate('pos');
   openReceiptChoice();
 }
@@ -802,16 +868,21 @@ function printReceipt() {
       .total-row td { font-size: 15px; font-weight: bold; padding-top: 8px; }
       .footer { text-align: center; font-size: 11px; margin-top: 14px; }
     </style></head><body>
-      <h1>BoutiqueStock</h1>
+      <h1>OTAWORLD243</h1>
       <div class="sub">${s.date} — Vendeur : ${s.seller}<br>Reçu n° ${s.id}</div>
       <hr>
       <table>
-        ${s.items.map(i => `<tr><td>${i.emoji} ${i.name} x${i.qty}</td><td class="right">${(i.price*i.qty).toFixed(2)} €</td></tr>`).join('')}
+        ${s.items.map(i => `<tr><td>${i.emoji} ${i.name} x${i.qty}</td><td class="right">${fmtFC(i.price*i.qty)}</td></tr>`).join('')}
       </table>
       <hr>
       <table>
-        <tr class="total-row"><td>TOTAL</td><td class="right">${s.total.toFixed(2)} €</td></tr>
-        ${s.received !== null && s.received !== undefined ? `<tr><td>Montant reçu</td><td class="right">${s.received.toFixed(2)} €</td></tr><tr><td>Rendu monnaie</td><td class="right">${s.change.toFixed(2)} €</td></tr>` : ''}
+        <tr class="total-row"><td>TOTAL</td><td class="right">${fmtFC(s.total)}</td></tr>
+        ${s.payCurrency === 'USD' ? `
+        <tr><td>Payé en dollars</td><td class="right">${fmtUSD(s.receivedForeign)}</td></tr>
+        <tr><td>Taux appliqué</td><td class="right">1$ = ${fmtFC(s.rateUsed)}</td></tr>
+        <tr><td>Équivalent reçu</td><td class="right">${fmtFC(s.received)}</td></tr>
+        <tr><td>Rendu monnaie</td><td class="right">${fmtFC(s.change)}</td></tr>` :
+        (s.received !== null && s.received !== undefined ? `<tr><td>Montant reçu</td><td class="right">${fmtFC(s.received)}</td></tr><tr><td>Rendu monnaie</td><td class="right">${fmtFC(s.change)}</td></tr>` : '')}
       </table>
       <div class="footer">Merci de votre visite !</div>
     </body></html>
@@ -827,14 +898,25 @@ function openPaymentCalc() {
   const total = cart.reduce((s,i) => s + i.price * i.qty, 0);
   openModal(`
     <div class="modal-title">🧮 Rendu monnaie</div>
-    <div style="font-size:20px;font-weight:700;color:var(--text-accent);margin-bottom:16px">Total : ${total.toFixed(2)} €</div>
-    <div class="form-field" style="margin-bottom:12px">
-      <label>Montant reçu (€)</label>
-      <input type="number" id="received-amount" value="${Math.ceil(total)}" step="0.50" min="0" oninput="updateChange(${total})" style="font-size:18px">
+    <div style="font-size:20px;font-weight:700;color:var(--text-accent);margin-bottom:2px">Total : ${fmtFC(total)}</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">≈ ${fmtUSD(fcToUsd(total))} au taux actuel (1 $ = ${fmtFC(exchangeRate)})</div>
+    <div class="form-grid" style="margin-bottom:6px">
+      <div class="form-field">
+        <label>Devise reçue</label>
+        <select id="pay-currency" onchange="switchPayCurrency(${total})">
+          <option value="FC">Franc congolais (Fc)</option>
+          <option value="USD">Dollar américain ($)</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label id="received-label">Montant reçu (Fc)</label>
+        <input type="number" id="received-amount" value="${Math.ceil(total/50)*50}" step="50" min="0" oninput="updateChange(${total})" style="font-size:18px">
+      </div>
     </div>
+    <div id="usd-hint" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;min-height:14px"></div>
     <div style="background:var(--bg-success);border-radius:var(--radius);padding:14px;text-align:center">
-      <div style="font-size:12px;color:var(--text-success)">Rendu monnaie</div>
-      <div id="change-amount" style="font-size:28px;font-weight:700;color:var(--text-success)">0.00 €</div>
+      <div style="font-size:12px;color:var(--text-success)">Rendu monnaie (en Fc)</div>
+      <div id="change-amount" style="font-size:28px;font-weight:700;color:var(--text-success)">0 Fc</div>
     </div>
     <div class="modal-actions" style="margin-top:14px">
       <button class="btn btn-success" style="flex:1;justify-content:center" onclick="captureChangeAndConfirm(${total})">✅ Valider la vente</button>
@@ -844,19 +926,51 @@ function openPaymentCalc() {
   updateChange(total);
 }
 
+function switchPayCurrency(total) {
+  const currency = document.getElementById('pay-currency').value;
+  const input = document.getElementById('received-amount');
+  if (currency === 'USD') {
+    input.step = '0.5';
+    input.value = (Math.ceil(fcToUsd(total)*2)/2).toFixed(2);
+  } else {
+    input.step = '50';
+    input.value = Math.ceil(total/50)*50;
+  }
+  updateChange(total);
+}
+
 function updateChange(total) {
-  const rec = parseFloat(document.getElementById('received-amount').value) || 0;
-  const change = rec - total;
+  const currency = document.getElementById('pay-currency').value;
+  const recInput = parseFloat(document.getElementById('received-amount').value) || 0;
+  const recFC = currency === 'USD' ? usdToFc(recInput) : recInput;
+  const change = recFC - total;
   const el = document.getElementById('change-amount');
-  el.textContent = change.toFixed(2) + ' €';
+  el.textContent = fmtFC(change);
   el.style.color = change < 0 ? 'var(--text-danger)' : 'var(--text-success)';
   el.closest('div').style.background = change < 0 ? 'var(--bg-danger)' : 'var(--bg-success)';
+  document.getElementById('received-label').textContent = currency === 'USD' ? 'Montant reçu ($)' : 'Montant reçu (Fc)';
+  const hint = document.getElementById('usd-hint');
+  hint.textContent = currency === 'USD' ? `≈ ${fmtFC(recFC)} au taux actuel (1 $ = ${fmtFC(exchangeRate)})` : '';
 }
 
 function captureChangeAndConfirm(total) {
-  const rec = parseFloat(document.getElementById('received-amount').value);
-  lastReceived = isNaN(rec) ? null : rec;
-  lastChange = lastReceived !== null ? lastReceived - total : null;
+  const currency = document.getElementById('pay-currency').value;
+  const recInput = parseFloat(document.getElementById('received-amount').value);
+  if (isNaN(recInput)) {
+    lastReceived = null; lastChange = null; lastPayCurrency = null; lastReceivedForeign = null; lastRateUsed = null;
+  } else if (currency === 'USD') {
+    lastPayCurrency = 'USD';
+    lastReceivedForeign = recInput;
+    lastReceived = usdToFc(recInput);
+    lastChange = lastReceived - total;
+    lastRateUsed = exchangeRate;
+  } else {
+    lastPayCurrency = 'FC';
+    lastReceivedForeign = null;
+    lastReceived = recInput;
+    lastChange = lastReceived - total;
+    lastRateUsed = exchangeRate;
+  }
   closeModal();
   openConfirmSale();
 }
@@ -926,7 +1040,7 @@ function buildStockRows(ps) {
       <td><span style="margin-right:6px">${p.emoji}</span>${p.name}</td>
       <td style="color:var(--text-secondary)">${p.category}</td>
       <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${p.barcode}</td>
-      <td style="text-align:right;color:var(--text-accent);font-weight:600">${p.price.toFixed(2)} €</td>
+      <td style="text-align:right;color:var(--text-accent);font-weight:600">${fmtFC(p.price)}</td>
       <td style="text-align:center;font-weight:600">${p.stock} <span style="color:var(--text-muted);font-weight:400">/ ${p.maxStock}</span></td>
       <td style="text-align:center"><span class="badge ${cls}">${label}</span></td>
       <td style="text-align:right">
@@ -963,7 +1077,7 @@ function openEditProduct(id) {
         <select id="e-cat">${cats.map(c=>`<option ${c===p.category?'selected':''}>${c}</option>`).join('')}<option value="__new">+ Nouvelle catégorie</option></select>
       </div>
       <div class="form-grid">
-        <div class="form-field"><label>Prix (€)</label><input id="e-price" type="number" step="0.01" min="0" value="${p.price}"></div>
+        <div class="form-field"><label>Prix (Fc)</label><input id="e-price" type="number" step="50" min="0" value="${p.price}"></div>
         <div class="form-field"><label>Stock actuel</label><input id="e-stock" type="number" min="0" value="${p.stock}"></div>
         <div class="form-field"><label>Stock maximum</label><input id="e-max" type="number" min="1" value="${p.maxStock}"></div>
       </div>
@@ -1031,7 +1145,7 @@ function renderAddProduct(pc) {
           <option value="__new">+ Nouvelle catégorie</option>
         </select>
       </div>
-      <div class="form-field"><label>Prix (€) *</label><input id="f-price" type="number" step="0.01" min="0" placeholder="0.00"></div>
+      <div class="form-field"><label>Prix (Fc) *</label><input id="f-price" type="number" step="50" min="0" placeholder="0"></div>
       <div class="form-field"><label>Stock initial</label><input id="f-stock" type="number" min="0" placeholder="0" value="0"></div>
       <div class="form-field"><label>Stock maximum</label><input id="f-max" type="number" min="1" placeholder="50" value="50"></div>
     </div>
@@ -1051,7 +1165,7 @@ function renderAddProduct(pc) {
         <div style="font-size:12px;color:var(--text-secondary)">${p.category} · Code: ${p.barcode}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:14px;font-weight:700;color:var(--text-accent)">${p.price.toFixed(2)} €</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text-accent)">${fmtFC(p.price)}</div>
         <span class="badge ${p.stock===0?'badge-out':p.stock<=3?'badge-low':'badge-ok'}" style="font-size:10px">${p.stock} en stock</span>
       </div>
     </div>`).join('')}
@@ -1107,15 +1221,16 @@ function renderHistory(pc) {
           <span style="font-size:11px;color:var(--text-secondary);margin-left:10px">${s.date}</span>
           <span style="font-size:11px;color:var(--text-muted);margin-left:8px">par ${s.seller}</span>
         </div>
-        <div style="font-size:16px;font-weight:700;color:var(--text-accent)">${s.total.toFixed(2)} €</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text-accent)">${fmtFC(s.total)}</div>
       </div>
+      ${s.payCurrency === 'USD' ? `<div style="font-size:11px;color:var(--text-accent);margin-bottom:6px">💵 Payé en dollars : ${fmtUSD(s.receivedForeign)} (1$ = ${fmtFC(s.rateUsed||0)})</div>` : ''}
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         ${s.items.map(i=>`<span style="font-size:12px;background:var(--surface-1);border:0.5px solid var(--border);border-radius:var(--radius);padding:3px 8px">${i.emoji} ${i.name} × ${i.qty}</span>`).join('')}
       </div>
     </div>`).join('')}
   </div>
   <div style="font-size:12px;color:var(--text-muted);margin-top:12px;text-align:center">
-    Total: <strong>${salesHistory.length} ventes</strong> — Chiffre d'affaires: <strong>${salesHistory.reduce((s,v)=>s+v.total,0).toFixed(2)} €</strong>
+    Total: <strong>${salesHistory.length} ventes</strong> — Chiffre d'affaires: <strong>${fmtFC(salesHistory.reduce((s,v)=>s+v.total,0))}</strong>
   </div>`}`;
 }
 
@@ -1124,6 +1239,42 @@ function clearHistory() {
     salesHistory = []; saveSales();
     toast('Historique effacé','✅'); navigate('history');
   }
+}
+
+// ══════════════════════════════════════════════
+//  PARAMÈTRES — TAUX DE CHANGE
+// ══════════════════════════════════════════════
+function renderSettings(pc) {
+  pc.innerHTML = `
+  <div class="section-title">⚙️ Paramètres</div>
+  <div class="card" style="max-width:440px">
+    <div class="section-title" style="font-size:14px;margin-bottom:8px">💱 Taux de change Dollar → Franc congolais</div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">
+      Ce taux permet au caissier de convertir un paiement effectué en dollars américains ($) en francs congolais (Fc) lors d'une vente. Mettez-le à jour dès qu'il varie.
+    </div>
+    <div class="form-field" style="margin-bottom:10px">
+      <label>1 $ équivaut à combien de Fc ?</label>
+      <input type="number" id="rate-input" min="1" step="1" value="${exchangeRate}" style="font-size:18px" oninput="previewRate()">
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">
+      Exemple : 10 $ = <strong id="rate-example">${fmtFC(usdToFc(10))}</strong>
+    </div>
+    <button class="btn btn-primary" style="justify-content:center;width:100%" onclick="saveExchangeRate()">💾 Enregistrer le taux</button>
+  </div>`;
+}
+
+function previewRate() {
+  const v = parseFloat(document.getElementById('rate-input').value) || 0;
+  document.getElementById('rate-example').textContent = (v*10).toLocaleString('fr-FR') + ' Fc';
+}
+
+function saveExchangeRate() {
+  const v = parseFloat(document.getElementById('rate-input').value);
+  if (!v || v <= 0) { toast('Entrez un taux valide','⚠️'); return; }
+  exchangeRate = v;
+  saveSettings();
+  toast(`Taux mis à jour : 1 $ = ${fmtFC(v)}`, '✅');
+  navigate('settings');
 }
 
 // ══════════════════════════════════════════════
@@ -1166,6 +1317,7 @@ function renderUsers(pc) {
           ['Ajouter de nouveaux articles','✅','❌'],
           ['Voir l\'historique des ventes','✅','❌'],
           ['Gérer les utilisateurs','✅','❌'],
+          ['Modifier le taux de change ($ → Fc)','✅','❌'],
         ].map(([f,a,v])=>`<tr><td>${f}</td><td style="text-align:center">${a}</td><td style="text-align:center">${v}</td></tr>`).join('')}
       </tbody>
     </table>
