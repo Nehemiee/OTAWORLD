@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BoutiqueStock — Gestion de stock</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --surface-0: #f1f0ec;
+    --surface-1: #e8e7e3;
+    --surface-2: #ffffff;
+    --surface-3: #ffffff;
+    --text-primary: #1a1a18;
+    --text-secondary: #5f5e5a;
+    --text-muted: #888780;
+    --border: rgba(0,0,0,0.1);
+    --border-strong: rgba(0,0,0,0.18);
+    --radius: 8px;
+
+    --bg-accent: #e6f1fb;
+    --text-accent: #185fa5;
+    --fill-accent: #378add;
+    --fill-accent-hover: #185fa5;
+    --border-accent: #85b7eb;
+
+    --bg-success: #eaf3de;
+    --text-success: #3b6d11;
+    --fill-success: #639922;
+    --border-success: #97c459;
+    --on-success: #ffffff;
+
+    --bg-warning: #faeeda;
+    --text-warning: #854f0b;
+    --fill-warning: #ef9f27;
+    --border-warning: #fac775;
+
+    --bg-danger: #fcebeb;
+    --text-danger: #a32d2d;
+    --fill-danger: #e24b4a;
+    --border-danger: #f09595;
+
+    --on-accent: #ffffff;
+    --on-brand: #ffffff;
+  }
+
+  [data-mode="dark"] {
+    --surface-0: #1a1a18;
+    --surface-1: #222220;
+    --surface-2: #2c2c2a;
+    --surface-3: #343432;
+    --text-primary: #f0ede6;
+    --text-secondary: #b4b2a9;
+    --text-muted: #888780;
+    --border: rgba(255,255,255,0.1);
+    --border-strong: rgba(255,255,255,0.18);
+
+    --bg-accent: #042c53;
+    --text-accent: #85b7eb;
+    --fill-accent: #378add;
+    --fill-accent-hover: #85b7eb;
+    --border-accent: #185fa5;
+
+    --bg-success: #173404;
+    --text-success: #97c459;
+    --fill-success: #639922;
+    --border-success: #3b6d11;
+
+    --bg-warning: #412402;
+    --text-warning: #fac775;
+    --fill-warning: #ef9f27;
+    --border-warning: #854f0b;
+
+    --bg-danger: #501313;
+    --text-danger: #f09595;
+    --fill-danger: #e24b4a;
+    --border-danger: #a32d2d;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: var(--surface-0); color: var(--text-primary); height: 100vh; overflow: hidden; font-size: 14px; }
+
+  /* ─── LAYOUT ─── */
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--surface-2); border-bottom: 0.5px solid var(--border); flex-shrink: 0; }
+  .topbar-left { display: flex; align-items: center; gap: 10px; }
+  .logo { font-size: 16px; font-weight: 600; }
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 54px; background: var(--surface-2); border-right: 0.5px solid var(--border); display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 4px; flex-shrink: 0; }
+  .content { flex: 1; overflow-y: auto; padding: 20px; background: var(--surface-0); }
+
+  /* ─── NAV ─── */
+  .nav-btn { width: 40px; height: 40px; border-radius: var(--radius); border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: background .15s, color .15s; position: relative; }
+  .nav-btn:hover { background: var(--surface-1); color: var(--text-primary); }
+  .nav-btn.active { background: var(--bg-accent); color: var(--text-accent); }
+  .nav-btn.locked { opacity: 0.3; cursor: not-allowed; }
+  .nav-btn .tooltip { display: none; position: absolute; left: 52px; background: var(--surface-3); border: 0.5px solid var(--border-strong); border-radius: var(--radius); padding: 4px 10px; font-size: 12px; white-space: nowrap; color: var(--text-primary); z-index: 50; pointer-events: none; }
+  .nav-btn:hover .tooltip { display: block; }
+  .nav-sep { width: 30px; border: none; border-top: 0.5px solid var(--border); margin: 4px 0; }
+
+  /* ─── BADGES ─── */
+  .badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; font-weight: 500; display: inline-block; }
+  .badge-admin { background: var(--bg-accent); color: var(--text-accent); }
+  .badge-seller { background: var(--bg-success); color: var(--text-success); }
+  .badge-ok { background: var(--bg-success); color: var(--text-success); }
+  .badge-low { background: var(--bg-warning); color: var(--text-warning); }
+  .badge-out { background: var(--bg-danger); color: var(--text-danger); }
+
+  /* ─── BUTTONS ─── */
+  .btn { padding: 8px 16px; border-radius: var(--radius); border: 0.5px solid var(--border-strong); background: var(--surface-2); color: var(--text-primary); cursor: pointer; font-size: 13px; font-weight: 500; transition: background .12s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: var(--surface-1); }
+  .btn-primary { background: var(--fill-accent); color: var(--on-accent); border-color: var(--fill-accent); }
+  .btn-primary:hover { background: var(--fill-accent-hover); border-color: var(--fill-accent-hover); }
+  .btn-success { background: var(--fill-success); color: var(--on-success); border-color: var(--fill-success); }
+  .btn-success:hover { filter: brightness(0.9); }
+  .btn-danger { background: transparent; color: var(--text-danger); border-color: var(--border-danger); }
+  .btn-danger:hover { background: var(--bg-danger); }
+  .btn-sm { font-size: 12px; padding: 5px 10px; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ─── FORMS ─── */
+  input, select, textarea { padding: 8px 10px; border-radius: var(--radius); border: 0.5px solid var(--border-strong); background: var(--surface-1); color: var(--text-primary); font-size: 13px; font-family: inherit; width: 100%; transition: border-color .12s; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--fill-accent); box-shadow: 0 0 0 3px rgba(55,138,221,0.15); }
+  label { font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 4px; }
+  .form-field { display: flex; flex-direction: column; gap: 4px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+  /* ─── CARDS ─── */
+  .card { background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 12px; padding: 16px; }
+  .section-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; color: var(--text-primary); }
+
+  /* ─── TABLES ─── */
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th { font-size: 11px; color: var(--text-secondary); text-align: left; padding: 8px 12px; border-bottom: 0.5px solid var(--border); text-transform: uppercase; letter-spacing: .5px; font-weight: 500; }
+  .data-table td { font-size: 13px; padding: 10px 12px; border-bottom: 0.5px solid var(--border); }
+  .data-table tbody tr:last-child td { border-bottom: none; }
+  .data-table tbody tr:hover td { background: var(--surface-1); }
+
+  /* ─── LOGIN ─── */
+  #login-screen { position: fixed; inset: 0; background: var(--surface-0); display: flex; align-items: center; justify-content: center; z-index: 200; }
+  .login-card { background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 16px; padding: 36px 32px; width: 380px; text-align: center; }
+  .login-logo { font-size: 44px; margin-bottom: 12px; }
+  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .login-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 28px; }
+  .user-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .user-choice { border: 0.5px solid var(--border); border-radius: 12px; padding: 20px 12px; cursor: pointer; text-align: center; background: var(--surface-1); transition: border-color .15s, background .15s; }
+  .user-choice:hover { border-color: var(--fill-accent); background: var(--bg-accent); }
+  .user-choice .uc-icon { font-size: 36px; margin-bottom: 8px; }
+  .user-choice .uc-name { font-size: 14px; font-weight: 600; }
+  .user-choice .uc-role { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* ─── POS ─── */
+  .pos-layout { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
+  .qr-frame { border: 2px dashed var(--border-strong); border-radius: 12px; height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: all .15s; }
+  .qr-frame:hover { border-color: var(--fill-accent); background: var(--bg-accent); }
+  .qr-frame.scanning { border-color: var(--fill-accent); background: var(--bg-accent); animation: pulse .6s ease-in-out; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+  .qr-icon { font-size: 44px; opacity: 0.4; }
+  .product-preview { display: flex; gap: 14px; align-items: flex-start; background: var(--surface-1); border-radius: var(--radius); padding: 14px; margin-top: 4px; border: 0.5px solid var(--border); }
+  .product-emoji-big { font-size: 44px; }
+  .product-price { font-size: 24px; font-weight: 700; color: var(--text-accent); margin: 4px 0; }
+  .cart-panel { background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 120px); }
+  .cart-items { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .cart-item { display: flex; align-items: center; gap: 8px; background: var(--surface-1); border-radius: var(--radius); padding: 8px 10px; }
+  .qty-ctrl { display: flex; align-items: center; gap: 6px; }
+  .qty-btn { width: 24px; height: 24px; border-radius: 4px; border: 0.5px solid var(--border-strong); background: var(--surface-2); cursor: pointer; font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; color: var(--text-primary); }
+  .qty-btn:hover { background: var(--surface-0); }
+  .cart-total { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-top: 0.5px solid var(--border); }
+  .cart-total-amount { font-size: 24px; font-weight: 700; color: var(--text-primary); }
+  .manual-search { display: flex; gap: 8px; margin-top: 4px; }
+  .manual-search input { flex: 1; }
+
+  /* ─── STOCK ─── */
+  .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .cat-card { background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 12px; padding: 16px; cursor: pointer; transition: border-color .15s; }
+  .cat-card:hover { border-color: var(--border-strong); }
+  .cat-emoji { font-size: 32px; margin-bottom: 8px; }
+  .cat-name-text { font-size: 13px; font-weight: 600; }
+  .cat-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .stock-bar-bg { height: 4px; background: var(--surface-0); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+  .stock-bar-fill { height: 100%; border-radius: 2px; transition: width .4s; }
+
+  /* ─── MODAL ─── */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
+  .modal-bg.open { display: flex; }
+  .modal-box { background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 16px; padding: 24px; width: 420px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
+  .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
+
+  /* ─── TOAST ─── */
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 12px; padding: 12px 16px; font-size: 13px; display: flex; align-items: center; gap: 10px; z-index: 999; box-shadow: 0 4px 24px rgba(0,0,0,0.15); max-width: 320px; transform: translateY(80px); opacity: 0; transition: transform .25s, opacity .25s; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast-icon { font-size: 18px; }
+
+  /* ─── USERS ─── */
+  .users-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .user-item { background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; flex-shrink: 0; }
+  .av-admin { background: var(--bg-accent); color: var(--text-accent); }
+  .av-seller { background: var(--bg-success); color: var(--text-success); }
+  .add-user-card { border: 0.5px dashed var(--border-strong) !important; cursor: pointer; justify-content: center; text-align: center; flex-direction: column; gap: 6px; }
+  .add-user-card:hover { border-color: var(--fill-accent) !important; background: var(--bg-accent); }
+
+  /* ─── MISC ─── */
+  .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+  .empty-state .empty-icon { font-size: 40px; margin-bottom: 10px; opacity: 0.4; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .flex1 { flex: 1; }
+  hr { border: none; border-top: 0.5px solid var(--border); margin: 8px 0; }
+  .theme-toggle { cursor: pointer; font-size: 18px; background: none; border: none; color: var(--text-secondary); padding: 4px 8px; border-radius: var(--radius); }
+  .theme-toggle:hover { background: var(--surface-1); }
+  .sale-history { display: flex; flex-direction: column; gap: 8px; }
+  .sale-row { background: var(--surface-1); border-radius: var(--radius); padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+
+  /* ─── RESPONSIVE (mobile / tablette) ─── */
+  @media (max-width: 860px) {
+    body { height: auto; min-height: 100vh; overflow: visible; }
+    .app { height: auto; min-height: 100vh; }
+    .main { flex-direction: column; overflow: visible; }
+    .sidebar { width: 100%; flex-direction: row; justify-content: flex-start; overflow-x: auto; padding: 6px 8px; gap: 6px; -webkit-overflow-scrolling: touch; }
+    .nav-sep { display: none; }
+    .nav-btn { flex-shrink: 0; }
+    .nav-btn .tooltip { display: none !important; }
+    .content { padding: 12px; overflow-y: visible; }
+    .pos-layout { grid-template-columns: 1fr; }
+    .cart-panel { max-height: none; }
+    .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
+    .topbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+    .topbar-left { flex-wrap: wrap; }
+    .modal-box { width: 92vw; padding: 18px; }
+    .card { overflow-x: auto; }
+    .login-card { width: 90vw; padding: 28px 18px; }
+    .users-grid, .cat-grid { grid-template-columns: 1fr; }
+    .manual-search { flex-direction: column; align-items: stretch; }
+  }
+  @media (max-width: 480px) {
+    body { font-size: 13px; }
+    .login-logo { font-size: 36px; }
+    .login-title { font-size: 19px; }
+    .cart-total-amount { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">🏪</div>
+    <div class="login-title">BoutiqueStock</div>
+    <div class="login-sub" id="login-sub">Connexion à la base de données…</div>
+    <div style="display:flex;flex-direction:column;gap:10px;text-align:left;margin-bottom:8px">
+      <div class="form-field">
+        <label>Identifiant</label>
+        <input id="login-username" placeholder="ex: admin" onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
+      </div>
+      <div class="form-field">
+        <label>Mot de passe</label>
+        <input id="login-password" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div id="login-error" style="display:none;color:var(--text-danger);font-size:12px;margin-top:-4px"></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px;margin-bottom:16px" onclick="doLogin()">🔓 Se connecter</button>
+    <div style="font-size:11px;color:var(--text-muted)">Application locale — données sauvegardées dans le navigateur</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app" id="app-shell" style="display:none">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span style="font-size:24px">🏪</span>
+      <span class="logo">BoutiqueStock</span>
+      <span class="badge" id="header-role-badge"></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:13px;color:var(--text-secondary)" id="header-username"></span>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Thème clair/sombre">🌙</button>
+      <button class="btn btn-sm" onclick="doLogout()">↩ Déconnexion</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="sidebar">
+      <button class="nav-btn active" id="nav-pos" onclick="navigate('pos')" title="Caisse">🛒<span class="tooltip">Caisse</span></button>
+      <button class="nav-btn" id="nav-stock" onclick="navigate('stock')">📦<span class="tooltip">Stock</span></button>
+      <button class="nav-btn" id="nav-add" onclick="navigate('add')">➕<span class="tooltip">Ajouter un article</span></button>
+      <hr class="nav-sep">
+      <button class="nav-btn" id="nav-history" onclick="navigate('history')">🧾<span class="tooltip">Historique des ventes</span></button>
+      <button class="nav-btn" id="nav-users" onclick="navigate('users')">👥<span class="tooltip">Utilisateurs</span></button>
+    </div>
+    <div class="content" id="page-content"></div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-bg" id="modal-bg" onclick="closeModalBg(event)">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <span class="toast-icon" id="toast-icon">✅</span>
+  <span id="toast-msg"></span>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  DONNÉES INITIALES
+// ══════════════════════════════════════════════
+const DEFAULT_PRODUCTS = [
+  {id:'P001',name:'T-shirt blanc',category:'Vêtements',emoji:'👕',price:24.99,stock:12,maxStock:30,barcode:'VET001'},
+  {id:'P002',name:'Jean slim bleu',category:'Vêtements',emoji:'👖',price:49.99,stock:3,maxStock:20,barcode:'VET002'},
+  {id:'P003',name:'Robe fleurie',category:'Vêtements',emoji:'👗',price:39.99,stock:7,maxStock:15,barcode:'VET003'},
+  {id:'P004',name:'Casquette noire',category:'Accessoires',emoji:'🧢',price:14.99,stock:8,maxStock:25,barcode:'ACC001'},
+  {id:'P005',name:'Montre argentée',category:'Accessoires',emoji:'⌚',price:89.99,stock:0,maxStock:10,barcode:'ACC002'},
+  {id:'P006',name:'Lunettes de soleil',category:'Accessoires',emoji:'🕶️',price:29.99,stock:5,maxStock:20,barcode:'ACC003'},
+  {id:'P007',name:'Sac à dos',category:'Bagages',emoji:'🎒',price:59.99,stock:5,maxStock:15,barcode:'BAG001'},
+  {id:'P008',name:'Portefeuille cuir',category:'Bagages',emoji:'👛',price:34.99,stock:2,maxStock:20,barcode:'BAG002'},
+  {id:'P009',name:'Valise cabine',category:'Bagages',emoji:'🧳',price:119.99,stock:4,maxStock:8,barcode:'BAG003'},
+  {id:'P010',name:'Crayon 2B',category:'Papeterie',emoji:'✏️',price:1.99,stock:42,maxStock:100,barcode:'PAP001'},
+  {id:'P011',name:'Cahier A5',category:'Papeterie',emoji:'📓',price:4.99,stock:2,maxStock:50,barcode:'PAP002'},
+  {id:'P012',name:'Stylo bille bleu',category:'Papeterie',emoji:'🖊️',price:0.99,stock:60,maxStock:150,barcode:'PAP003'},
+];
+
+const DEFAULT_USERS = [
+  {id:'U001',name:'Sophie Martin',role:'admin',email:'s.martin@boutique.fr',username:'admin',password:'admin123'},
+  {id:'U002',name:'Marc Dubois',role:'seller',email:'m.dubois@boutique.fr',username:'marc',password:'vendeur1'},
+  {id:'U003',name:'Lucie Bernard',role:'seller',email:'l.bernard@boutique.fr',username:'lucie',password:'vendeur2'},
+];
+
+// ══════════════════════════════════════════════
+//  CONFIGURATION FIREBASE (base de données partagée)
+// ══════════════════════════════════════════════
+// 👉 Remplacez les valeurs ci-dessous par celles de VOTRE projet Firebase.
+// Voir le README.md fourni pour les instructions pas à pas (5 minutes, gratuit).
+// Si vous laissez les valeurs telles quelles, l'application fonctionnera quand
+// même, mais en mode "local" (données non partagées entre appareils).
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCpb1ll44PQvb5Z9waPqws2oPgBr5Rj4Hc",
+  authDomain: "boutique-stock.firebaseapp.com",
+  projectId: "boutique-stock",
+  storageBucket: "boutique-stock.firebasestorage.app",
+  messagingSenderId: "766123518493",
+  appId: "1:766123518493:web:3b8720ea3cf2839913b4f4"
+};
+
+let useFirebase = false;
+let docRef = null;
+let isDataReady = false;
+
+try {
+  if (FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== "VOTRE_API_KEY") {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const db = firebase.firestore();
+    docRef = db.collection('boutique').doc('store1');
+    useFirebase = true;
+  }
+} catch (e) {
+  console.warn('Firebase non configuré correctement, repli sur le stockage local.', e);
+  useFirebase = false;
+}
+
+// ══════════════════════════════════════════════
+//  PERSISTANCE (localStorage — secours hors-ligne / mode local)
+// ══════════════════════════════════════════════
+function load(key, def) {
+  try { const v = localStorage.getItem('boutique_'+key); return v ? JSON.parse(v) : def; }
+  catch(e) { return def; }
+}
+function save(key, val) {
+  try { localStorage.setItem('boutique_'+key, JSON.stringify(val)); } catch(e) {}
+}
+
+let products = DEFAULT_PRODUCTS;
+let users = DEFAULT_USERS;
+let salesHistory = [];
+
+function saveProducts() {
+  if (useFirebase) docRef.set({ products }, { merge: true }).catch(e => console.warn('Erreur Firebase (produits):', e));
+  else save('products', products);
+}
+function saveUsers() {
+  if (useFirebase) docRef.set({ users }, { merge: true }).catch(e => console.warn('Erreur Firebase (utilisateurs):', e));
+  else save('users', users);
+}
+function saveSales() {
+  if (useFirebase) docRef.set({ sales: salesHistory }, { merge: true }).catch(e => console.warn('Erreur Firebase (ventes):', e));
+  else save('sales', salesHistory);
+}
+
+function loadLocalFallback() {
+  products = load('products', DEFAULT_PRODUCTS);
+  users = load('users', DEFAULT_USERS);
+  salesHistory = load('sales', []);
+}
+
+// Re-affiche la vue courante quand les données changent (ex: mise à jour
+// faite depuis une autre machine connectée à la même base Firebase).
+function refreshAfterSync() {
+  if (currentUser) {
+    if (['pos','stock','add','history','users'].includes(currentView)) navigate(currentView);
+  } else {
+    renderLoginGrid();
+  }
+}
+
+async function initData() {
+  const subEl = document.getElementById('login-sub');
+  if (useFirebase) {
+    try {
+      const snap = await docRef.get();
+      if (snap.exists) {
+        const d = snap.data();
+        products = d.products || DEFAULT_PRODUCTS;
+        users = d.users || DEFAULT_USERS;
+        salesHistory = d.sales || [];
+      } else {
+        await docRef.set({ products: DEFAULT_PRODUCTS, users: DEFAULT_USERS, sales: [] });
+      }
+      // Synchronisation en temps réel entre tous les appareils connectés
+      docRef.onSnapshot(snap => {
+        if (!snap.exists) return;
+        const d = snap.data();
+        products = d.products || products;
+        users = d.users || users;
+        salesHistory = d.sales || salesHistory;
+        refreshAfterSync();
+      });
+      if (subEl) subEl.textContent = 'Connectez-vous avec votre identifiant et mot de passe';
+    } catch (e) {
+      console.warn('Erreur de connexion à Firebase, repli sur le stockage local.', e);
+      useFirebase = false;
+      loadLocalFallback();
+      if (subEl) subEl.textContent = 'Connectez-vous (mode local — voir console)';
+    }
+  } else {
+    loadLocalFallback();
+    if (subEl) subEl.textContent = 'Connectez-vous avec votre identifiant et mot de passe';
+  }
+  isDataReady = true;
+}
+
+// ══════════════════════════════════════════════
+//  ÉTAT
+// ══════════════════════════════════════════════
+let currentUser = null;
+let currentView = 'pos';
+let cart = [];
+let scannedProduct = null;
+let lastReceived = null;
+let lastChange = null;
+let lastSale = null;
+let scanIdx = 0;
+let darkMode = load('dark', false);
+
+// ══════════════════════════════════════════════
+//  THÈME
+// ══════════════════════════════════════════════
+function applyTheme() {
+  document.documentElement.setAttribute('data-mode', darkMode ? 'dark' : '');
+  document.querySelector('.theme-toggle').textContent = darkMode ? '☀️' : '🌙';
+}
+function toggleTheme() { darkMode = !darkMode; save('dark', darkMode); applyTheme(); }
+applyTheme();
+
+// ══════════════════════════════════════════════
+//  LOGIN
+// ══════════════════════════════════════════════
+function renderLoginGrid() {
+  // Plus de grille de profils cliquables : connexion par identifiant + mot de passe.
+  const u = document.getElementById('login-username');
+  const p = document.getElementById('login-password');
+  const err = document.getElementById('login-error');
+  if (u) u.value = '';
+  if (p) p.value = '';
+  if (err) err.style.display = 'none';
+}
+
+function doLogin() {
+  if (!isDataReady) { toast('Chargement des données en cours, patientez…','⏳'); return; }
+  const username = (document.getElementById('login-username').value || '').trim().toLowerCase();
+  const password = document.getElementById('login-password').value || '';
+  const errEl = document.getElementById('login-error');
+  const u = users.find(x => (x.username || '').toLowerCase() === username);
+  if (!u || u.password !== password) {
+    errEl.textContent = 'Identifiant ou mot de passe incorrect.';
+    errEl.style.display = 'block';
+    return;
+  }
+  currentUser = u;
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-shell').style.display = 'flex';
+  document.getElementById('header-username').textContent = u.name;
+  document.getElementById('header-role-badge').textContent = u.role === 'admin' ? 'Administrateur' : 'Vendeur';
+  document.getElementById('header-role-badge').className = 'badge ' + (u.role === 'admin' ? 'badge-admin' : 'badge-seller');
+  setupNavAccess();
+  cart = [];
+  scannedProduct = null;
+  navigate('pos');
+}
+
+function doLogout() {
+  currentUser = null; cart = []; scannedProduct = null;
+  document.getElementById('app-shell').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  renderLoginGrid();
+}
+
+function setupNavAccess() {
+  const isAdmin = currentUser.role === 'admin';
+  ['nav-stock','nav-add','nav-history','nav-users'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (isAdmin) { btn.classList.remove('locked'); btn.onclick = () => navigate(id.replace('nav-','')); }
+    else { btn.classList.add('locked'); btn.onclick = () => toast('Accès réservé à l\'administrateur','⚠️'); }
+  });
+}
+
+// ══════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════
+function navigate(view) {
+  if (currentUser.role !== 'admin' && view !== 'pos') { toast('Accès réservé à l\'administrateur','⚠️'); return; }
+  currentView = view;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const navEl = document.getElementById('nav-'+view);
+  if (navEl) navEl.classList.add('active');
+  const pc = document.getElementById('page-content');
+  if (view === 'pos') renderPOS(pc);
+  else if (view === 'stock') renderStock(pc);
+  else if (view === 'add') renderAddProduct(pc);
+  else if (view === 'history') renderHistory(pc);
+  else if (view === 'users') renderUsers(pc);
+}
+
+// ══════════════════════════════════════════════
+//  POS — CAISSE
+// ══════════════════════════════════════════════
+const ALL_BARCODES = () => products.map(p => p.barcode);
+
+function renderPOS(pc) {
+  const p = scannedProduct;
+  const total = cart.reduce((s,i) => s + i.price * i.qty, 0);
+  pc.innerHTML = `
+  <div class="pos-layout">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="card">
+        <div class="section-title" style="margin-bottom:10px">📷 Scanner un article</div>
+        <div class="qr-frame" id="qr-frame" onclick="startCameraScan()">
+          <div class="qr-icon">📷</div>
+          <div style="font-size:14px;font-weight:500;color:var(--text-secondary)">Cliquez pour scanner avec la caméra</div>
+          <div style="font-size:12px;color:var(--text-muted)">Webcam (ordinateur) ou caméra arrière (téléphone)</div>
+        </div>
+        <div class="manual-search" style="margin-top:12px">
+          <input id="barcode-input" placeholder="Entrer le code article manuellement (ex: VET001)" onkeydown="if(event.key==='Enter')searchBarcode()">
+          <button class="btn btn-primary" onclick="searchBarcode()" style="white-space:nowrap">🔍 Rechercher</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px">
+          Codes disponibles : ${products.map(p=>`<strong>${p.barcode}</strong>`).join(' · ')}
+        </div>
+      </div>
+
+      ${p ? `
+      <div class="card">
+        <div class="product-preview">
+          <div class="product-emoji-big">${p.emoji}</div>
+          <div style="flex:1">
+            <div style="font-size:16px;font-weight:600">${p.name}</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${p.category} · Réf: ${p.id} · Code: ${p.barcode}</div>
+            <div class="product-price">${p.price.toFixed(2)} €</div>
+            <span class="badge ${p.stock===0?'badge-out':p.stock<=3?'badge-low':'badge-ok'}">
+              ${p.stock===0?'Rupture de stock':p.stock<=3?`⚠️ Stock faible (${p.stock} restants)`:`✅ ${p.stock} en stock`}
+            </span>
+          </div>
+        </div>
+        ${p.stock > 0 ? `
+        <button class="btn btn-primary" onclick="addToCart()" style="width:100%;margin-top:12px;justify-content:center;padding:11px">
+          🛒 Ajouter au panier
+        </button>` : `
+        <div style="text-align:center;padding:12px;color:var(--text-danger);font-size:13px;background:var(--bg-danger);border-radius:var(--radius);margin-top:10px">
+          Cet article est en rupture de stock
+        </div>`}
+      </div>` : `
+      <div class="card">
+        <div class="empty-state"><div class="empty-icon">🔍</div><div>Scannez un article pour voir ses informations</div></div>
+      </div>`}
+    </div>
+
+    <div class="cart-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:14px;font-weight:600">🛒 Panier <span class="badge badge-ok" style="font-size:10px">${cart.length}</span></div>
+        ${cart.length>0?`<button class="btn btn-sm" onclick="clearCart()" style="color:var(--text-danger);border-color:var(--border-danger)">Vider</button>`:''}
+      </div>
+      <div class="cart-items">
+        ${cart.length === 0 ? `<div class="empty-state" style="padding:20px"><div class="empty-icon">🛒</div><div style="font-size:13px">Panier vide</div></div>` :
+          cart.map((item,i) => `
+          <div class="cart-item">
+            <span style="font-size:22px">${item.emoji}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.name}</div>
+              <div style="font-size:12px;color:var(--text-secondary)">${item.price.toFixed(2)} € / u</div>
+            </div>
+            <div class="qty-ctrl">
+              <button class="qty-btn" onclick="changeQty(${i},-1)">−</button>
+              <span style="font-size:13px;font-weight:600;min-width:20px;text-align:center">${item.qty}</span>
+              <button class="qty-btn" onclick="changeQty(${i},1)">+</button>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-accent);min-width:56px;text-align:right">${(item.price*item.qty).toFixed(2)} €</div>
+          </div>`).join('')}
+      </div>
+      <hr>
+      <div class="cart-total">
+        <div>
+          <div style="font-size:12px;color:var(--text-secondary)">Total TTC</div>
+          <div class="cart-total-amount">${total.toFixed(2)} €</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:12px;color:var(--text-secondary)">${cart.reduce((s,i)=>s+i.qty,0)} article(s)</div>
+        </div>
+      </div>
+      <button class="btn btn-success" onclick="openConfirmSale()" style="width:100%;justify-content:center;padding:12px;font-size:14px" ${cart.length===0?'disabled':''}>
+        ✅ Valider la vente — ${total.toFixed(2)} €
+      </button>
+      <button class="btn btn-sm" onclick="openPaymentCalc()" style="width:100%;justify-content:center" ${cart.length===0?'disabled':''}>
+        🧮 Calculer le rendu monnaie
+      </button>
+    </div>
+  </div>`;
+}
+
+let html5QrCode = null;
+
+function startCameraScan() {
+  if (typeof Html5Qrcode === 'undefined') {
+    toast('Bibliothèque de scan indisponible (vérifiez votre connexion internet)', '⚠️');
+    return;
+  }
+  openModal(`
+    <div class="modal-title">📷 Scanner un code-barre</div>
+    <div id="qr-reader" style="width:100%;border-radius:8px;overflow:hidden"></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-top:10px">Présentez le code-barre devant la caméra. Autorisez l'accès à la caméra si le navigateur le demande.</div>
+    <div class="modal-actions">
+      <button class="btn" style="flex:1;justify-content:center" onclick="stopCameraScan()">Fermer</button>
+    </div>
+  `);
+  html5QrCode = new Html5Qrcode("qr-reader");
+  const formatsToSupport = (typeof Html5QrcodeSupportedFormats !== 'undefined') ? [
+    Html5QrcodeSupportedFormats.CODE_39,
+    Html5QrcodeSupportedFormats.CODE_93,
+    Html5QrcodeSupportedFormats.CODE_128,
+    Html5QrcodeSupportedFormats.EAN_13,
+    Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.UPC_A,
+    Html5QrcodeSupportedFormats.UPC_E,
+    Html5QrcodeSupportedFormats.ITF,
+    Html5QrcodeSupportedFormats.QR_CODE
+  ] : undefined;
+  const config = { fps: 10, qrbox: { width: 280, height: 180 }, formatsToSupport };
+  html5QrCode.start(
+    { facingMode: "environment" },
+    config,
+    (decodedText) => { onBarcodeDetected(decodedText); },
+    () => { /* image sans code détecté sur cette frame : on ignore */ }
+  ).catch(err => {
+    toast('Caméra inaccessible : vérifiez les autorisations ou utilisez HTTPS', '⚠️');
+    closeModal();
+  });
+}
+
+function onBarcodeDetected(code) {
+  if (!html5QrCode) return;
+  const finish = () => {
+    html5QrCode = null;
+    closeModal();
+    const input = document.getElementById('barcode-input');
+    if (input) input.value = code;
+    lookupBarcode(code);
+  };
+  html5QrCode.stop().then(() => { html5QrCode.clear(); finish(); }).catch(finish);
+}
+
+function stopCameraScan() {
+  if (html5QrCode) {
+    html5QrCode.stop().then(() => { html5QrCode.clear(); html5QrCode = null; closeModal(); })
+      .catch(() => { html5QrCode = null; closeModal(); });
+  } else {
+    closeModal();
+  }
+}
+
+function lookupBarcode(code) {
+  const c = (code || '').trim().toUpperCase().replace(/^\*+|\*+$/g, '');
+  const p = products.find(x => x.barcode.toUpperCase() === c || x.id.toUpperCase() === c);
+  if (p) { scannedProduct = p; navigate('pos'); toast('Article trouvé : ' + p.name, '✅'); }
+  else { toast('Article introuvable : ' + code, '⚠️'); }
+}
+
+function searchBarcode() {
+  const code = (document.getElementById('barcode-input').value || '').trim();
+  if (!code) return;
+  lookupBarcode(code);
+}
+
+function addToCart() {
+  if (!scannedProduct || scannedProduct.stock === 0) return;
+  const existing = cart.find(i => i.id === scannedProduct.id);
+  const inCart = existing ? existing.qty : 0;
+  if (inCart >= scannedProduct.stock) { toast('Stock insuffisant pour en ajouter davantage','⚠️'); return; }
+  if (existing) existing.qty++;
+  else cart.push({ ...scannedProduct, qty: 1 });
+  scannedProduct = null;
+  navigate('pos');
+}
+
+function changeQty(idx, delta) {
+  const item = cart[idx];
+  const prod = products.find(p => p.id === item.id);
+  item.qty += delta;
+  if (item.qty <= 0) cart.splice(idx, 1);
+  else if (prod && item.qty > prod.stock) { item.qty = prod.stock; toast('Quantité limitée au stock disponible','⚠️'); }
+  navigate('pos');
+}
+
+function clearCart() { cart = []; scannedProduct = null; navigate('pos'); }
+
+function openConfirmSale() {
+  if (cart.length === 0) return;
+  const total = cart.reduce((s,i) => s + i.price * i.qty, 0);
+  openModal(`
+    <div class="modal-title">🧾 Confirmer la vente</div>
+    <table class="data-table">
+      <thead><tr><th>Article</th><th style="text-align:right">Qté</th><th style="text-align:right">Sous-total</th></tr></thead>
+      <tbody>
+        ${cart.map(i => `<tr>
+          <td>${i.emoji} ${i.name}</td>
+          <td style="text-align:right">${i.qty}</td>
+          <td style="text-align:right;color:var(--text-accent);font-weight:600">${(i.price*i.qty).toFixed(2)} €</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:0.5px solid var(--border);margin-top:8px">
+      <span style="font-size:15px;font-weight:600">Total</span>
+      <span style="font-size:22px;font-weight:700;color:var(--text-accent)">${total.toFixed(2)} €</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-success" style="flex:1;justify-content:center" onclick="confirmSale()">✅ Confirmer</button>
+      <button class="btn" onclick="closeModal()">Annuler</button>
+    </div>
+  `);
+}
+
+function confirmSale() {
+  const total = cart.reduce((s,i) => s + i.price * i.qty, 0);
+  const items = cart.map(i => ({...i}));
+  cart.forEach(item => {
+    const p = products.find(x => x.id === item.id);
+    if (p) p.stock = Math.max(0, p.stock - item.qty);
+  });
+  saveProducts();
+  const sale = { id: 'V'+Date.now(), date: new Date().toLocaleString('fr-FR'), seller: currentUser.name, items, total, received: lastReceived, change: lastChange };
+  salesHistory.unshift(sale);
+  if (salesHistory.length > 500) salesHistory = salesHistory.slice(0, 500);
+  saveSales();
+  lastSale = sale;
+  cart = []; scannedProduct = null;
+  lastReceived = null; lastChange = null;
+  closeModal();
+  toast(`Vente validée — ${total.toFixed(2)} €`, '✅');
+  navigate('pos');
+  openReceiptChoice();
+}
+
+function openReceiptChoice() {
+  if (!lastSale) return;
+  openModal(`
+    <div class="modal-title">🧾 Reçu de vente</div>
+    <div style="color:var(--text-secondary);margin-bottom:16px">La vente a bien été enregistrée. Voulez-vous imprimer un reçu pour le client ?</div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="printReceipt()">🖨️ Imprimer le reçu</button>
+      <button class="btn" onclick="closeModal()">Passer cette étape</button>
+    </div>
+  `);
+}
+
+function printReceipt() {
+  if (!lastSale) { closeModal(); return; }
+  const s = lastSale;
+  const win = window.open('', '_blank', 'width=380,height=600');
+  if (!win) { toast("Impossible d'ouvrir la fenêtre d'impression","⚠️"); return; }
+  win.document.write(`
+    <!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Reçu — ${s.id}</title>
+    <style>
+      body { font-family: 'Courier New', monospace; font-size: 13px; width: 280px; margin: 0 auto; padding: 16px; color:#000; }
+      h1 { font-size: 16px; text-align: center; margin: 0 0 4px; }
+      .sub { text-align: center; font-size: 11px; margin-bottom: 12px; }
+      hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      td { padding: 2px 0; }
+      .right { text-align: right; }
+      .total-row td { font-size: 15px; font-weight: bold; padding-top: 8px; }
+      .footer { text-align: center; font-size: 11px; margin-top: 14px; }
+    </style></head><body>
+      <h1>BoutiqueStock</h1>
+      <div class="sub">${s.date} — Vendeur : ${s.seller}<br>Reçu n° ${s.id}</div>
+      <hr>
+      <table>
+        ${s.items.map(i => `<tr><td>${i.emoji} ${i.name} x${i.qty}</td><td class="right">${(i.price*i.qty).toFixed(2)} €</td></tr>`).join('')}
+      </table>
+      <hr>
+      <table>
+        <tr class="total-row"><td>TOTAL</td><td class="right">${s.total.toFixed(2)} €</td></tr>
+        ${s.received !== null && s.received !== undefined ? `<tr><td>Montant reçu</td><td class="right">${s.received.toFixed(2)} €</td></tr><tr><td>Rendu monnaie</td><td class="right">${s.change.toFixed(2)} €</td></tr>` : ''}
+      </table>
+      <div class="footer">Merci de votre visite !</div>
+    </body></html>
+  `);
+  win.document.close();
+  win.focus();
+  win.onload = () => { win.print(); };
+  setTimeout(() => { win.print(); }, 300);
+  closeModal();
+}
+
+function openPaymentCalc() {
+  const total = cart.reduce((s,i) => s + i.price * i.qty, 0);
+  openModal(`
+    <div class="modal-title">🧮 Rendu monnaie</div>
+    <div style="font-size:20px;font-weight:700;color:var(--text-accent);margin-bottom:16px">Total : ${total.toFixed(2)} €</div>
+    <div class="form-field" style="margin-bottom:12px">
+      <label>Montant reçu (€)</label>
+      <input type="number" id="received-amount" value="${Math.ceil(total)}" step="0.50" min="0" oninput="updateChange(${total})" style="font-size:18px">
+    </div>
+    <div style="background:var(--bg-success);border-radius:var(--radius);padding:14px;text-align:center">
+      <div style="font-size:12px;color:var(--text-success)">Rendu monnaie</div>
+      <div id="change-amount" style="font-size:28px;font-weight:700;color:var(--text-success)">0.00 €</div>
+    </div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn btn-success" style="flex:1;justify-content:center" onclick="captureChangeAndConfirm(${total})">✅ Valider la vente</button>
+      <button class="btn" onclick="closeModal()">Fermer</button>
+    </div>
+  `);
+  updateChange(total);
+}
+
+function updateChange(total) {
+  const rec = parseFloat(document.getElementById('received-amount').value) || 0;
+  const change = rec - total;
+  const el = document.getElementById('change-amount');
+  el.textContent = change.toFixed(2) + ' €';
+  el.style.color = change < 0 ? 'var(--text-danger)' : 'var(--text-success)';
+  el.closest('div').style.background = change < 0 ? 'var(--bg-danger)' : 'var(--bg-success)';
+}
+
+function captureChangeAndConfirm(total) {
+  const rec = parseFloat(document.getElementById('received-amount').value);
+  lastReceived = isNaN(rec) ? null : rec;
+  lastChange = lastReceived !== null ? lastReceived - total : null;
+  closeModal();
+  openConfirmSale();
+}
+
+// ══════════════════════════════════════════════
+//  STOCK
+// ══════════════════════════════════════════════
+function renderStock(pc) {
+  const cats = [...new Set(products.map(p => p.category))];
+  pc.innerHTML = `
+  <div class="section-title">Vue d'ensemble par catégorie</div>
+  <div class="cat-grid">
+    ${cats.map(cat => {
+      const ps = products.filter(p => p.category === cat);
+      const total = ps.reduce((s,p) => s+p.stock, 0);
+      const max = ps.reduce((s,p) => s+p.maxStock, 0);
+      const pct = max > 0 ? total/max : 0;
+      const barClass = pct === 0 ? 'background:var(--fill-danger)' : pct < 0.2 ? 'background:var(--fill-warning)' : 'background:var(--fill-success)';
+      const badgeClass = pct === 0 ? 'badge-out' : pct < 0.2 ? 'badge-low' : 'badge-ok';
+      return `<div class="cat-card">
+        <div class="cat-emoji">${ps[0].emoji}</div>
+        <div class="cat-name-text">${cat}</div>
+        <div class="cat-meta">${ps.length} articles</div>
+        <div style="margin-top:6px"><span class="badge ${badgeClass}" style="font-size:10px">${total} / ${max} en stock</span></div>
+        <div class="stock-bar-bg"><div class="stock-bar-fill" style="${barClass};width:${Math.round(pct*100)}%"></div></div>
+      </div>`;
+    }).join('')}
+  </div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div class="section-title" style="margin-bottom:0">Tous les articles</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="stock-search" placeholder="Rechercher..." style="width:180px" oninput="filterStockTable()">
+      <select id="stock-cat-filter" style="width:160px" onchange="filterStockTable()">
+        <option value="">Toutes les catégories</option>
+        ${cats.map(c=>`<option>${c}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="data-table" id="stock-table">
+      <thead>
+        <tr>
+          <th>Article</th>
+          <th>Catégorie</th>
+          <th>Code</th>
+          <th style="text-align:right">Prix</th>
+          <th style="text-align:center">Stock</th>
+          <th style="text-align:center">Statut</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="stock-tbody">
+        ${buildStockRows(products)}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function buildStockRows(ps) {
+  return ps.map(p => {
+    const pct = p.maxStock > 0 ? p.stock/p.maxStock : 0;
+    const cls = p.stock===0?'badge-out':pct<0.2?'badge-low':'badge-ok';
+    const label = p.stock===0?'Rupture':pct<0.2?'Faible':'OK';
+    return `<tr data-cat="${p.category}" data-name="${p.name.toLowerCase()}">
+      <td><span style="margin-right:6px">${p.emoji}</span>${p.name}</td>
+      <td style="color:var(--text-secondary)">${p.category}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${p.barcode}</td>
+      <td style="text-align:right;color:var(--text-accent);font-weight:600">${p.price.toFixed(2)} €</td>
+      <td style="text-align:center;font-weight:600">${p.stock} <span style="color:var(--text-muted);font-weight:400">/ ${p.maxStock}</span></td>
+      <td style="text-align:center"><span class="badge ${cls}">${label}</span></td>
+      <td style="text-align:right">
+        <button class="btn btn-sm" onclick="openEditProduct('${p.id}')">✏️ Modifier</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function filterStockTable() {
+  const q = (document.getElementById('stock-search').value||'').toLowerCase();
+  const cat = document.getElementById('stock-cat-filter').value;
+  const rows = document.querySelectorAll('#stock-tbody tr');
+  rows.forEach(row => {
+    const matchName = row.dataset.name.includes(q);
+    const matchCat = !cat || row.dataset.cat === cat;
+    row.style.display = matchName && matchCat ? '' : 'none';
+  });
+}
+
+function openEditProduct(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const cats = [...new Set(products.map(x => x.category))];
+  openModal(`
+    <div class="modal-title">✏️ Modifier l'article</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="form-grid">
+        <div class="form-field"><label>Emoji</label><input id="e-emoji" value="${p.emoji}" maxlength="2" style="font-size:18px"></div>
+        <div class="form-field"><label>Code / QR</label><input id="e-barcode" value="${p.barcode}"></div>
+      </div>
+      <div class="form-field"><label>Nom de l'article</label><input id="e-name" value="${p.name}"></div>
+      <div class="form-field"><label>Catégorie</label>
+        <select id="e-cat">${cats.map(c=>`<option ${c===p.category?'selected':''}>${c}</option>`).join('')}<option value="__new">+ Nouvelle catégorie</option></select>
+      </div>
+      <div class="form-grid">
+        <div class="form-field"><label>Prix (€)</label><input id="e-price" type="number" step="0.01" min="0" value="${p.price}"></div>
+        <div class="form-field"><label>Stock actuel</label><input id="e-stock" type="number" min="0" value="${p.stock}"></div>
+        <div class="form-field"><label>Stock maximum</label><input id="e-max" type="number" min="1" value="${p.maxStock}"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveEdit('${p.id}')">💾 Enregistrer</button>
+      <button class="btn btn-danger" onclick="confirmDeleteProduct('${p.id}')">🗑 Supprimer</button>
+      <button class="btn" onclick="closeModal()">Annuler</button>
+    </div>
+  `);
+}
+
+function saveEdit(id) {
+  const p = products.find(x => x.id === id);
+  let cat = document.getElementById('e-cat').value;
+  if (cat === '__new') { cat = prompt('Nouvelle catégorie :') || p.category; }
+  p.emoji = document.getElementById('e-emoji').value || p.emoji;
+  p.name = document.getElementById('e-name').value.trim() || p.name;
+  p.category = cat;
+  p.barcode = document.getElementById('e-barcode').value.trim().toUpperCase() || p.barcode;
+  p.price = parseFloat(document.getElementById('e-price').value) || p.price;
+  p.stock = parseInt(document.getElementById('e-stock').value) || 0;
+  p.maxStock = parseInt(document.getElementById('e-max').value) || p.maxStock;
+  saveProducts();
+  closeModal();
+  toast('Article mis à jour', '✅');
+  navigate('stock');
+}
+
+function confirmDeleteProduct(id) {
+  const p = products.find(x => x.id === id);
+  openModal(`
+    <div class="modal-title">🗑 Supprimer l'article</div>
+    <div style="margin-bottom:16px;color:var(--text-secondary)">Voulez-vous vraiment supprimer <strong>${p.name}</strong> ? Cette action est irréversible.</div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" style="flex:1;justify-content:center" onclick="deleteProduct('${id}')">Supprimer</button>
+      <button class="btn" onclick="openEditProduct('${id}')">Annuler</button>
+    </div>
+  `);
+}
+
+function deleteProduct(id) {
+  products = products.filter(x => x.id !== id);
+  saveProducts();
+  closeModal();
+  toast('Article supprimé', '✅');
+  navigate('stock');
+}
+
+// ══════════════════════════════════════════════
+//  AJOUT D'ARTICLE
+// ══════════════════════════════════════════════
+function renderAddProduct(pc) {
+  const cats = [...new Set(products.map(p => p.category))];
+  pc.innerHTML = `
+  <div class="section-title">Ajouter un article</div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="form-grid" style="margin-bottom:12px">
+      <div class="form-field"><label>Emoji 🏷️</label><input id="f-emoji" placeholder="👕" maxlength="2" style="font-size:18px"></div>
+      <div class="form-field"><label>Code barres / QR *</label><input id="f-barcode" placeholder="ex: VET003"></div>
+      <div class="form-field" style="grid-column:1/-1"><label>Nom de l'article *</label><input id="f-name" placeholder="ex: T-shirt rouge taille M"></div>
+      <div class="form-field"><label>Catégorie *</label>
+        <select id="f-cat">
+          ${cats.map(c=>`<option>${c}</option>`).join('')}
+          <option value="__new">+ Nouvelle catégorie</option>
+        </select>
+      </div>
+      <div class="form-field"><label>Prix (€) *</label><input id="f-price" type="number" step="0.01" min="0" placeholder="0.00"></div>
+      <div class="form-field"><label>Stock initial</label><input id="f-stock" type="number" min="0" placeholder="0" value="0"></div>
+      <div class="form-field"><label>Stock maximum</label><input id="f-max" type="number" min="1" placeholder="50" value="50"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="addProduct()" style="justify-content:center">➕ Ajouter l'article</button>
+      <button class="btn" onclick="clearAddForm()">Réinitialiser</button>
+    </div>
+  </div>
+
+  <div class="section-title">Articles récents</div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    ${[...products].reverse().slice(0,6).map(p => `
+    <div style="display:flex;align-items:center;gap:12px;background:var(--surface-2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px">
+      <span style="font-size:24px">${p.emoji}</span>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${p.name}</div>
+        <div style="font-size:12px;color:var(--text-secondary)">${p.category} · Code: ${p.barcode}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:14px;font-weight:700;color:var(--text-accent)">${p.price.toFixed(2)} €</div>
+        <span class="badge ${p.stock===0?'badge-out':p.stock<=3?'badge-low':'badge-ok'}" style="font-size:10px">${p.stock} en stock</span>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+function addProduct() {
+  const name = document.getElementById('f-name').value.trim();
+  const price = parseFloat(document.getElementById('f-price').value);
+  const stock = parseInt(document.getElementById('f-stock').value) || 0;
+  const max = parseInt(document.getElementById('f-max').value) || 50;
+  let cat = document.getElementById('f-cat').value;
+  const barcode = document.getElementById('f-barcode').value.trim().toUpperCase();
+  const emoji = document.getElementById('f-emoji').value.trim() || '🏷️';
+
+  if (!name) { toast('Entrez un nom d\'article','⚠️'); return; }
+  if (isNaN(price) || price < 0) { toast('Prix invalide','⚠️'); return; }
+  if (!barcode) { toast('Entrez un code barres','⚠️'); return; }
+  if (products.find(p => p.barcode === barcode)) { toast('Ce code barres est déjà utilisé','⚠️'); return; }
+  if (cat === '__new') { cat = prompt('Nom de la nouvelle catégorie :'); if (!cat) return; }
+
+  const id = 'P' + String(Date.now()).slice(-6);
+  products.push({ id, name, category: cat, emoji, price, stock, maxStock: max, barcode });
+  saveProducts();
+  toast(`"${name}" ajouté au stock`, '✅');
+  navigate('add');
+}
+
+function clearAddForm() {
+  ['f-name','f-price','f-barcode','f-emoji'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-stock').value = '0';
+  document.getElementById('f-max').value = '50';
+}
+
+// ══════════════════════════════════════════════
+//  HISTORIQUE
+// ══════════════════════════════════════════════
+function renderHistory(pc) {
+  pc.innerHTML = `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div class="section-title" style="margin-bottom:0">🧾 Historique des ventes</div>
+    <div style="display:flex;gap:8px">
+      ${salesHistory.length>0?`<button class="btn btn-sm btn-danger" onclick="clearHistory()">🗑 Effacer l'historique</button>`:''}
+    </div>
+  </div>
+  ${salesHistory.length === 0 ? `<div class="empty-state"><div class="empty-icon">🧾</div><div>Aucune vente enregistrée</div></div>` : `
+  <div style="display:flex;flex-direction:column;gap:8px">
+    ${salesHistory.slice(0,50).map(s => `
+    <div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <span style="font-size:12px;font-family:monospace;color:var(--text-muted)">${s.id}</span>
+          <span style="font-size:11px;color:var(--text-secondary);margin-left:10px">${s.date}</span>
+          <span style="font-size:11px;color:var(--text-muted);margin-left:8px">par ${s.seller}</span>
+        </div>
+        <div style="font-size:16px;font-weight:700;color:var(--text-accent)">${s.total.toFixed(2)} €</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${s.items.map(i=>`<span style="font-size:12px;background:var(--surface-1);border:0.5px solid var(--border);border-radius:var(--radius);padding:3px 8px">${i.emoji} ${i.name} × ${i.qty}</span>`).join('')}
+      </div>
+    </div>`).join('')}
+  </div>
+  <div style="font-size:12px;color:var(--text-muted);margin-top:12px;text-align:center">
+    Total: <strong>${salesHistory.length} ventes</strong> — Chiffre d'affaires: <strong>${salesHistory.reduce((s,v)=>s+v.total,0).toFixed(2)} €</strong>
+  </div>`}`;
+}
+
+function clearHistory() {
+  if (confirm('Effacer tout l\'historique des ventes ?')) {
+    salesHistory = []; saveSales();
+    toast('Historique effacé','✅'); navigate('history');
+  }
+}
+
+// ══════════════════════════════════════════════
+//  UTILISATEURS
+// ══════════════════════════════════════════════
+function renderUsers(pc) {
+  pc.innerHTML = `
+  <div class="section-title">Utilisateurs</div>
+  <div class="users-grid">
+    ${users.map(u => `
+    <div class="user-item">
+      <div class="avatar ${u.role==='admin'?'av-admin':'av-seller'}">${u.name.split(' ').map(w=>w[0]).join('')}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600">${u.name}</div>
+        <div style="margin-top:3px"><span class="badge ${u.role==='admin'?'badge-admin':'badge-seller'}">${u.role==='admin'?'Admin':'Vendeur'}</span></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🔑 ${u.username || '—'} · ${u.email}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button class="btn btn-sm" onclick="openEditUser('${u.id}')">✏️</button>
+        ${u.id !== currentUser.id ? `<button class="btn btn-sm" style="color:var(--text-danger);border-color:var(--border-danger)" onclick="confirmDeleteUser('${u.id}')">🗑</button>` : ''}
+      </div>
+    </div>`).join('')}
+    <div class="user-item add-user-card" onclick="openAddUser()">
+      <span style="font-size:28px;opacity:0.5">➕</span>
+      <span style="font-size:13px;color:var(--text-secondary)">Ajouter un utilisateur</span>
+    </div>
+  </div>
+
+  <div class="section-title">Permissions par rôle</div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="data-table">
+      <thead><tr><th>Fonctionnalité</th><th style="text-align:center">Administrateur</th><th style="text-align:center">Vendeur</th></tr></thead>
+      <tbody>
+        ${[
+          ['Interface de caisse (scan + panier)','✅','✅'],
+          ['Calculer le rendu monnaie','✅','✅'],
+          ['Voir le stock et les catégories','✅','❌'],
+          ['Modifier les articles (prix, stock)','✅','❌'],
+          ['Supprimer des articles','✅','❌'],
+          ['Ajouter de nouveaux articles','✅','❌'],
+          ['Voir l\'historique des ventes','✅','❌'],
+          ['Gérer les utilisateurs','✅','❌'],
+        ].map(([f,a,v])=>`<tr><td>${f}</td><td style="text-align:center">${a}</td><td style="text-align:center">${v}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function openAddUser() {
+  openModal(`
+    <div class="modal-title">👤 Ajouter un utilisateur</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="form-field"><label>Nom complet *</label><input id="u-name" placeholder="Prénom Nom"></div>
+      <div class="form-field"><label>Email</label><input id="u-email" type="email" placeholder="email@boutique.fr"></div>
+      <div class="form-field"><label>Identifiant de connexion *</label><input id="u-username" placeholder="ex: jdupont"></div>
+      <div class="form-field"><label>Mot de passe *</label><input id="u-password" type="password" placeholder="••••••••"></div>
+      <div class="form-field"><label>Rôle</label>
+        <select id="u-role"><option value="seller">Vendeur</option><option value="admin">Administrateur</option></select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="addUser()">✅ Créer</button>
+      <button class="btn" onclick="closeModal()">Annuler</button>
+    </div>
+  `);
+}
+
+function addUser() {
+  const name = document.getElementById('u-name').value.trim();
+  const email = document.getElementById('u-email').value.trim();
+  const username = document.getElementById('u-username').value.trim().toLowerCase();
+  const password = document.getElementById('u-password').value;
+  const role = document.getElementById('u-role').value;
+  if (!name) { toast('Entrez un nom','⚠️'); return; }
+  if (!username) { toast('Entrez un identifiant de connexion','⚠️'); return; }
+  if (users.some(x => (x.username||'').toLowerCase() === username)) { toast('Cet identifiant existe déjà','⚠️'); return; }
+  if (!password) { toast('Entrez un mot de passe','⚠️'); return; }
+  users.push({ id:'U'+Date.now(), name, role, email, username, password });
+  saveUsers();
+  closeModal();
+  toast(`${name} ajouté(e)`, '✅');
+  navigate('users');
+}
+
+function openEditUser(id) {
+  const u = users.find(x => x.id === id);
+  if (!u) return;
+  openModal(`
+    <div class="modal-title">✏️ Modifier l'utilisateur</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="form-field"><label>Nom complet</label><input id="eu-name" value="${u.name}"></div>
+      <div class="form-field"><label>Email</label><input id="eu-email" type="email" value="${u.email}"></div>
+      <div class="form-field"><label>Identifiant de connexion</label><input id="eu-username" value="${u.username || ''}"></div>
+      <div class="form-field"><label>Nouveau mot de passe</label><input id="eu-password" type="password" placeholder="Laisser vide pour ne pas changer"></div>
+      <div class="form-field"><label>Rôle</label>
+        <select id="eu-role" ${u.id===currentUser.id?'disabled':''}>
+          <option value="seller" ${u.role==='seller'?'selected':''}>Vendeur</option>
+          <option value="admin" ${u.role==='admin'?'selected':''}>Administrateur</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveUser('${id}')">💾 Enregistrer</button>
+      <button class="btn" onclick="closeModal()">Annuler</button>
+    </div>
+  `);
+}
+
+function saveUser(id) {
+  const u = users.find(x => x.id === id);
+  const newUsername = document.getElementById('eu-username').value.trim().toLowerCase();
+  if (newUsername && users.some(x => x.id !== id && (x.username||'').toLowerCase() === newUsername)) {
+    toast('Cet identifiant est déjà utilisé','⚠️'); return;
+  }
+  u.name = document.getElementById('eu-name').value.trim() || u.name;
+  u.email = document.getElementById('eu-email').value.trim();
+  if (newUsername) u.username = newUsername;
+  const newPassword = document.getElementById('eu-password').value;
+  if (newPassword) u.password = newPassword;
+  if (u.id !== currentUser.id) u.role = document.getElementById('eu-role').value;
+  saveUsers();
+  closeModal();
+  toast('Utilisateur mis à jour','✅');
+  navigate('users');
+}
+
+function confirmDeleteUser(id) {
+  const u = users.find(x => x.id === id);
+  openModal(`
+    <div class="modal-title">🗑 Supprimer l'utilisateur</div>
+    <div style="margin-bottom:16px;color:var(--text-secondary)">Supprimer <strong>${u.name}</strong> ? Cette action est irréversible.</div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" style="flex:1;justify-content:center" onclick="deleteUser('${id}')">Supprimer</button>
+      <button class="btn" onclick="closeModal()">Annuler</button>
+    </div>
+  `);
+}
+
+function deleteUser(id) {
+  users = users.filter(x => x.id !== id);
+  saveUsers();
+  closeModal();
+  toast('Utilisateur supprimé','✅');
+  navigate('users');
+}
+
+// ══════════════════════════════════════════════
+//  MODAL & TOAST
+// ══════════════════════════════════════════════
+function openModal(html) {
+  document.getElementById('modal-box').innerHTML = html;
+  document.getElementById('modal-bg').classList.add('open');
+}
+function closeModal() { document.getElementById('modal-bg').classList.remove('open'); }
+function closeModalBg(e) { if (e.target === document.getElementById('modal-bg')) closeModal(); }
+
+let toastTimer;
+function toast(msg, icon='✅') {
+  const el = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('toast-icon').textContent = icon;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+initData();
+</script>
+</body>
+</html>
