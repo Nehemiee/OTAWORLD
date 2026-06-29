@@ -686,19 +686,44 @@ function startCameraScan() {
   ] : undefined;
   const config = { fps: 15, qrbox: { width: 250, height: 150 }, formatsToSupport };
 
+  // Force l'autofocus continu sur le flux vidéo après démarrage
+  const applyFocusFix = () => {
+    setTimeout(() => {
+      try {
+        const video = document.querySelector('#qr-reader video');
+        if (!video) return;
+        const stream = video.srcObject;
+        if (!stream) return;
+        const track = stream.getVideoTracks()[0];
+        if (!track) return;
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        const constraints = {};
+        if (caps.focusMode && caps.focusMode.includes('continuous')) {
+          constraints.focusMode = 'continuous';
+        }
+        if (caps.zoom) {
+          constraints.zoom = Math.min(2.0, caps.zoom.min + (caps.zoom.max - caps.zoom.min) * 0.15);
+        }
+        if (Object.keys(constraints).length > 0) {
+          track.applyConstraints({ advanced: [constraints] }).catch(() => {});
+        }
+      } catch(e) {}
+    }, 800);
+  };
+
   const fallbackStart = () => {
     html5QrCode.start(
       { facingMode: { exact: "environment" } },
       config,
       (decodedText) => { onBarcodeDetected(decodedText); },
       () => {}
-    ).catch(() => {
+    ).then(applyFocusFix).catch(() => {
       html5QrCode.start(
         { facingMode: "environment" },
         config,
         (decodedText) => { onBarcodeDetected(decodedText); },
         () => {}
-      ).catch(() => {
+      ).then(applyFocusFix).catch(() => {
         toast('Caméra inaccessible : vérifiez les autorisations ou utilisez HTTPS', '⚠️');
         closeModal();
       });
@@ -726,7 +751,7 @@ function startCameraScan() {
       config,
       (decodedText) => { onBarcodeDetected(decodedText); },
       () => {}
-    ).catch(() => fallbackStart());
+    ).then(applyFocusFix).catch(() => fallbackStart());
 
   }).catch(() => fallbackStart());
 }
